@@ -79,7 +79,6 @@ class AuthenticatedMovieApiTests(TestCase):
         genre_action = movie1.genres.create(name="Action")
         genre_comedy = movie2.genres.create(name="Comedy")
 
-        # Фільтруємо через OR, тому обидва фільми повинні бути в результатах
         res = self.client.get(MOVIE_URL, {"genres": f"{genre_action.id},{genre_comedy.id}"})
         serializer1 = MovieListSerializer(movie1)
         serializer2 = MovieListSerializer(movie2)
@@ -127,7 +126,7 @@ class AuthenticatedMovieApiTests(TestCase):
         movie.refresh_from_db()
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
-        self.assertTrue(bool(movie.image))  # Перевіряємо, що зображення збережено
+        self.assertTrue(bool(movie.image))
 
 
 class AdminMovieTests(TestCase):
@@ -166,3 +165,16 @@ class AdminMovieTests(TestCase):
         res = self.client.delete(url)
         self.assertEqual(res.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(Movie.objects.filter(id=movie.id).exists())
+
+    def test_upload_image(self):
+        movie = sample_movie()
+        url = upload_image_url(movie.id)
+
+        image = SimpleUploadedFile(
+            "test_image.jpg", b"file_content", content_type="image/jpeg"
+        )
+        res = self.client.post(url, {"image": image}, format="multipart")
+        movie.refresh_from_db()
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(bool(movie.image))
