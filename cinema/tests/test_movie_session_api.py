@@ -3,9 +3,10 @@ from django.test import TestCase
 from rest_framework import status
 from rest_framework.test import APIClient
 from rest_framework.reverse import reverse
+from django.core.files.uploadedfile import SimpleUploadedFile
 
 from cinema.models import Movie
-from cinema.serializers import MovieSerializer
+from cinema.serializers import MovieListSerializer, MovieDetailSerializer
 import os
 import django
 
@@ -17,6 +18,10 @@ MOVIE_URL = reverse("cinema:movie-list")
 
 def detail_url(movie_id):
     return reverse("cinema:movie-detail", args=(movie_id,))
+
+
+def upload_image_url(movie_id):
+    return reverse("cinema:movie-upload-image", args=[movie_id])
 
 
 def sample_movie(**params) -> Movie:
@@ -52,7 +57,7 @@ class AuthenticatedMovieApiTests(TestCase):
 
         res = self.client.get(MOVIE_URL)
         movies = Movie.objects.all()
-        serializer = MovieSerializer(movies, many=True)
+        serializer = MovieListSerializer(movies, many=True)
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data["results"], serializer.data)
@@ -62,7 +67,7 @@ class AuthenticatedMovieApiTests(TestCase):
         sample_movie(title="Batman")
 
         res = self.client.get(MOVIE_URL, {"title": "Avengers"})
-        serializer = MovieSerializer(movie1)
+        serializer = MovieListSerializer(movie1)
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertIn(serializer.data, res.data["results"])
@@ -74,12 +79,13 @@ class AuthenticatedMovieApiTests(TestCase):
         genre_action = movie1.genres.create(name="Action")
         genre_comedy = movie2.genres.create(name="Comedy")
 
-        res = self.client.get(MOVIE_URL, {"genres": f"{genre_action.id}, {genre_comedy.id}"})
-        serializer1 = MovieSerializer(movie1)
-        serializer2 = MovieSerializer(movie2)
+        # Фільтруємо через OR, тому обидва фільми повинні бути в результатах
+        res = self.client.get(MOVIE_URL, {"genres": f"{genre_action.id},{genre_comedy.id}"})
+        serializer1 = MovieListSerializer(movie1)
+        serializer2 = MovieListSerializer(movie2)
 
         self.assertIn(serializer1.data, res.data["results"])
-        self.assertNotIn(serializer2.data, res.data["results"])
+        self.assertIn(serializer2.data, res.data["results"])
 
     def test_filter_movies_by_actors(self):
         movie1 = sample_movie(title="Hero Movie")
@@ -89,8 +95,8 @@ class AuthenticatedMovieApiTests(TestCase):
         actor2 = movie2.actors.create(name="Actor 2")
 
         res = self.client.get(MOVIE_URL, {"actors": f"{actor1.id}"})
-        serializer1 = MovieSerializer(movie1)
-        serializer2 = MovieSerializer(movie2)
+        serializer1 = MovieListSerializer(movie1)
+        serializer2 = MovieListSerializer(movie2)
 
         self.assertIn(serializer1.data, res.data["results"])
         self.assertNotIn(serializer2.data, res.data["results"])
@@ -100,7 +106,7 @@ class AuthenticatedMovieApiTests(TestCase):
         url = detail_url(movie.id)
 
         res = self.client.get(url)
-        serializer = MovieSerializer(movie)
+        serializer = MovieDetailSerializer(movie)
 
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(res.data, serializer.data)
@@ -109,6 +115,19 @@ class AuthenticatedMovieApiTests(TestCase):
         payload = {"title": "New Movie", "description": "Desc", "duration": 100}
         res = self.client.post(MOVIE_URL, payload)
         self.assertEqual(res.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_upload_image(self):
+        movie = sample_movie()
+        url = upload_image_url(movie.id)
+
+        image = SimpleUploadedFile(
+            "test_image.jpg", b"file_content", content_type="image/jpeg"
+        )
+        res = self.client.post(url, {"image": image}, format="multipart")
+        movie.refresh_from_db()
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertTrue(bool(movie.image))  # Перевіряємо, що зображення збережено
 
 
 class AdminMovieTests(TestCase):
